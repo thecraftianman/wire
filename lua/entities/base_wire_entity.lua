@@ -11,11 +11,15 @@ ENT.IsWire = true
 
 if CLIENT then
 	local wire_drawoutline = CreateClientConVar("wire_drawoutline", 1, true, false)
-	local beingLookedAtByLocalPlayer
+	-- Funny reverse-detour because this function is sometimes nil and sometimes not, but is never nil when drawing for the first time.
+	local function beingLookedAtByLocalPlayer(self)
+		beingLookedAtByLocalPlayer = BaseClass.BeingLookedAtByLocalPlayer
+		return beingLookedAtByLocalPlayer(self)
+	end
 
 	function ENT:Initialize()
 		self.NextRBUpdate = CurTime() + 0.25
-		beingLookedAtByLocalPlayer = BaseClass.BeingLookedAtByLocalPlayer
+		self.PlayerWasLookingAtMe = false
 	end
 
 	function ENT:Draw()
@@ -226,23 +230,22 @@ if CLIENT then
 		ent:DrawWorldTip()
 	end)
 
-	local playerWasLookingAtMe = false
-
 	-- Custom better version of this base_gmodentity function
 	function ENT:BeingLookedAtByLocalPlayer()
 		local trbool = beingLookedAtByLocalPlayer(self)
+		local self_table = self:GetTable()
 
-		if playerWasLookingAtMe ~= trbool then
+		if self_table.PlayerWasLookingAtMe ~= trbool then
 			net.Start("wire_overlay_request")
 				if trbool then
 					net.WriteBool(true)
 					net.WriteEntity(self)
-					net.WriteFloat(self.OverlayData and self.OverlayData.__time or 0)
+					net.WriteFloat(self_table.OverlayData and self_table.OverlayData.__time or 0)
 				else
 					net.WriteBool(false)
 				end
 			net.SendToServer()
-			playerWasLookingAtMe = trbool
+			self_table.PlayerWasLookingAtMe = trbool
 		end
 
 		return trbool
@@ -416,12 +419,14 @@ net.Receive( "wire_overlay_request", function( len, ply )
 	end
 end)
 
-function ENT:Initialize()
-	BaseClass.Initialize(self)
-	self:PhysicsInit(SOLID_VPHYSICS)
-	self:SetMoveType(MOVETYPE_VPHYSICS)
-	self:SetSolid(SOLID_VPHYSICS)
-	self.WireDebugName = self.WireDebugName or (self.PrintName and self.PrintName:sub(6)) or self:GetClass():gsub("gmod_wire", "")
+if SERVER then
+	function ENT:Initialize()
+		BaseClass.Initialize(self)
+		self:PhysicsInit(SOLID_VPHYSICS)
+		self:SetMoveType(MOVETYPE_VPHYSICS)
+		self:SetSolid(SOLID_VPHYSICS)
+		self.WireDebugName = self.WireDebugName or (self.PrintName and self.PrintName:sub(6)) or self:GetClass():gsub("gmod_wire", "")
+	end
 end
 
 function ENT:OnRemove()
