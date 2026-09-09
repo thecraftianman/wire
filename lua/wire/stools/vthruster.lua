@@ -53,6 +53,13 @@ function TOOL:LeftClick( trace )
 		local ent = WireToolObj.LeftClick_Make(self, trace, ply )
 		if isbool(ent) then return ent end
 		if IsValid(ent) then
+			undo.Create("WireVThruster")
+				undo.AddEntity( ent )
+				undo.SetPlayer( ply )
+			undo.Finish()
+
+			ply:AddCleanup( "wire_vthrusters", ent )
+
 			ent:GetPhysicsObject():EnableMotion( false )
 			self:ReleaseGhostEntity()
 
@@ -67,18 +74,10 @@ function TOOL:LeftClick( trace )
 		local anchorbone = self:GetBone(1)
 
 		local const = WireLib.Weld(wire_thruster, anchor, anchorbone, true, false)
+		if const then ply:AddCleanup( "wire_vthrusters", const ) end
 
 		local Phys = wire_thruster:GetPhysicsObject()
 		Phys:EnableMotion( true )
-
-		undo.Create("WireVThruster")
-			undo.AddEntity( wire_thruster )
-			undo.AddEntity( const )
-			undo.SetPlayer( ply )
-		undo.Finish()
-
-		ply:AddCleanup( "wire_vthrusters", wire_thruster )
-		ply:AddCleanup( "wire_vthrusters", const )
 
 		self:ClearObjects()
 	end
@@ -133,6 +132,8 @@ function TOOL.BuildCPanel(panel)
 			["#Smoke"] = "smoke",
 			["#Smoke Random"] = "smoke_random",
 			["#Smoke Do it Youself"] = "smoke_diy",
+			["#Exhaust"] = "exhaust",
+			["#Exhaust Do it Yourself"] = "exhaust_diy",
 			["#Rings"] = "rings",
 			["#Rings Growing"] = "rings_grow",
 			["#Rings Shrinking"] = "rings_shrink",
@@ -173,6 +174,7 @@ function TOOL.BuildCPanel(panel)
 			--["#Debugger 60 Seconds"] = "debug_60",
 			["#Fire and Smoke"] = "fire_smoke",
 			["#Fire and Smoke Huge"] = "fire_smoke_big",
+			["#Flamethrower"] = "flamethrower",
 			["#5 Growing Rings"] = "rings_grow_rings",
 			["#Color and Magic"] = "color_magic",
 		}
@@ -241,5 +243,3 @@ function TOOL.BuildCPanel(panel)
 	panel:CheckBox("#WireVThrusterTool_Angle", "wire_vthruster_angleinputs")
 	panel:CheckBox("#WireVThrusterTool_LengthIsMul", "wire_vthruster_lengthismul")
 end
-
-list.Set( "ThrusterModels", "models/jaanus/wiretool/wiretool_speed.mdl", {} )

@@ -51,15 +51,6 @@ local externalModels = {
 	{"Wire_button_Models",			"models/props_mining/freightelevatorbutton02.mdl"},
 	{"Wire_button_Models",			"models/props_mining/switch01.mdl"},
 	{"Wire_button_Models",			"models/props_mining/switch_updown01.mdl"},
-	-- These seem to be missing from wire itself.  Where are they?  Who knows?!
-	-- {"ThrusterModels",				"models/jaanus/thruster_invisi.mdl"},
-	-- {"ThrusterModels",				"models/jaanus/thruster_shoop.mdl"},
-	-- {"ThrusterModels",				"models/jaanus/thruster_smile.mdl"},
-	-- {"ThrusterModels",				"models/jaanus/thruster_muff.mdl"},
-	-- {"ThrusterModels",				"models/jaanus/thruster_rocket.mdl"},
-	-- {"ThrusterModels",				"models/jaanus/thruster_megaphn.mdl"},
-	-- {"ThrusterModels",				"models/jaanus/thruster_stun.mdl"},
-	-- {"Wire_Value_Models",			"models/cheeze/wires/chip.mdl"},
 	{"WireTeleporterModels",		"models/props_c17/pottery03a.mdl"},
 	{"Wire_Keyboard_Models",		"models/props/kb_mouse/keyboard.mdl"},
 }
@@ -154,7 +145,9 @@ ModelPlug.ListAddModels("WireScreenModels", {
 	"models/fasteroid/bull/lcd3.mdl",
 	"models/fasteroid/bull/lcd4.mdl",
 	"models/fasteroid/bull/lcd5.mdl",
-	"models/props_phx/construct/windows/window1x1.mdl"
+	"models/props_phx/construct/windows/window1x1.mdl",
+	"models/props/cs_militia/tv_console.mdl",
+	"models/props/cs_militia/television_console01.mdl"
 })
 
 --screens without a GPULib setup (for the tools wire_panel and wire_screen)
@@ -189,14 +182,6 @@ ModelPlug.ListAddGenerics("WireSounds", {
 	["Heartbeat"] = "k_lab.teleport_heartbeat",
 	["Breathing"] = "k_lab.teleport_breathing"
 })
-
---some extra wheels that wired wheels have
-ModelPlug.ListAddModels("WheelModels", {
-	"models/props_wasteland/wheel01a.mdl",
-	"models/props_wasteland/wheel02a.mdl",
-	"models/props_wasteland/wheel03a.mdl",
-	"models/props_wasteland/wheel03b.mdl"
-}, { wheel_rx = 90, wheel_ry = 0, wheel_rz = 90} )
 
 ModelPlug.ListAddModels("Wire_button_Models", {
 	"models/props_citizen_tech/Firetrap_button01a.mdl",
@@ -262,12 +247,6 @@ ModelPlug.ListAddModels("Wire_button_Models", {
 	"models/bull/buttons/toggle_switch.mdl",
 	"models/bull/buttons/rocker_switch.mdl",
 	"models/bull/buttons/key_switch.mdl"
-})
-
-ModelPlug.ListAddModels("ThrusterModels", {
-	"models/props_junk/garbage_metalcan001a.mdl",
-	"models/jaanus/thruster_flat.mdl",
-	"models/fasteroid/computerfan.mdl"
 })
 
 ModelPlug.ListAddModels("Wire_Explosive_Models", {
@@ -372,7 +351,8 @@ ModelPlug.ListAddModels("Wire_Light_Models", {
 ModelPlug.ListAddModels("Wire_Keyboard_Models",{
 	"models/beer/wiremod/keyboard.mdl",
 	"models/jaanus/wiretool/wiretool_input.mdl",
-	"models/props_c17/computer01_keyboard.mdl"
+	"models/props_c17/computer01_keyboard.mdl",
+	"models/props/cs_office/computer_keyboard.mdl"
 })
 
 ModelPlug.ListAddModels("Wire_Hydraulic_Models",{

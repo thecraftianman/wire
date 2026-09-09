@@ -4,6 +4,7 @@ local abs    = math.abs
 local random = math.random
 local pi     = math.pi
 local inf    = math.huge
+local nan    = 0 / 0
 
 local exp    = math.exp
 local frexp  = math.frexp
@@ -303,6 +304,18 @@ end
 
 --[[************************************************************************]]--
 
+__e2setcost(10)
+
+[nodiscard]
+e2function number factorial(number n)
+	if n < 0 then return nan end
+	if n > 170 then return inf end
+
+	local res = 1
+	for i = 2, n do res = res * i end
+	return res
+end
+
 __e2setcost(2) -- approximation
 
 [nodiscard]
@@ -568,10 +581,16 @@ __e2setcost(10)
 local CHARS = string.Split("0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ", "")
 
 local function tobase(number, base, self)
-	if base < 2 or base > 36 or number == 0 then return "0" end
-	if base == 10 then return tostring(number) end
+	if number < 0 then return "-" .. tobase(-number, base, self) end
 
-	local out, loops, d = {}, ceil(log(number) / log(base)), 0
+	base = floor(base)
+	if base == 10 then return tostring(number) end
+	if base ~= base or base < 2 or base > 36 then return "0" end
+
+	number = floor(number)
+	if number ~= number or number == 0 then return "0" end
+
+	local out, loops, d = {}, floor(log(number) / log(base)) + 1, 0
 	if loops == inf then return "inf" end
 
 	for i = loops, 1, -1 do

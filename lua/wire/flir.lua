@@ -47,12 +47,12 @@ FLIR.mat = Material("phoenix_storms/concrete0")
 FLIR.transmat = Material("phoenix_storms/iron_rails")
 FLIR.hide = false
 
-function FLIR.Render(self)
+function FLIR.Render(self, flags)
 	if not FLIR.hide then
 		if self.BackupRenderOverride then
-			self:BackupRenderOverride()
+			self:BackupRenderOverride(flags)
 		end
-		self:DrawModel()
+		self:DrawModel(flags)
 
 		return
 	end
@@ -98,7 +98,7 @@ local function RemoveFLIR(ent)
 end
 
 local function SetFLIR(ent)
-	if not ent:IsValid() then return end
+	if not ent:IsValid() or FLIR.RenderStack[ent] then return end
 	local classname = ent:GetClass()
 
 	if ent:GetColor().a > 0 and (FLIR.classWhitelist[classname] or ent:GetMoveType() == MOVETYPE_VPHYSICS or ent:IsPlayer() or ent:IsNPC() or ent:IsRagdoll()) then
@@ -111,7 +111,7 @@ end
 function FLIR.start()
 	if FLIR.enabled then return else FLIR.enabled = true end
 
-	for _, v in ipairs(ents.GetAll()) do
+	for _, v in ents.Iterator() do
 		SetFLIR(v)
 	end
 
@@ -133,11 +133,13 @@ function FLIR.start()
 		render.SuppressEngineLighting(true)
 		render.SetColorModulation(FLIR.gain, FLIR.gain, FLIR.gain)  			--this works?? I could not for the life of me make it work in renderoverride. Well.
 																				--It's a much better solution than the stencil I spent hours on...
-		for ent, valid in pairs(FLIR.RenderStack) do
-			if valid and ent:IsValid() and not ent:GetNoDraw() then
-				FLIR.hide = false
-				ent:DrawModel()
-				FLIR.hide = true
+		for ent in pairs(FLIR.RenderStack) do
+			if ent:IsValid() and not ent:GetNoDraw() then
+				if not ent:IsDormant() then
+					FLIR.hide = false
+					ent:DrawModel()
+					FLIR.hide = true
+				end
 			else
 				RemoveFLIR(ent)
 			end
@@ -145,7 +147,6 @@ function FLIR.start()
 
 		render.SuppressEngineLighting(false)
 		render.MaterialOverride(FLIR.transmat)
-
 	end)
 
 	hook.Add("PostDrawTranslucentRenderables", "wire_flir", function()
@@ -190,8 +191,8 @@ function FLIR.stop()
 	hook.Remove("OnEntityCreated", "wire_flir")
 	hook.Remove("CreateClientsideRagdoll", "wire_flir")
 
-	for _, v in ipairs(ents.GetAll()) do
-		RemoveFLIR(v)
+	for ent in pairs(FLIR.RenderStack) do
+		RemoveFLIR(ent)
 	end
 end
 
@@ -211,4 +212,3 @@ net.Receive("FLIR.enable", function()
 	local enabled = net.ReadBool()
 	FLIR.enable(enabled)
 end)
-

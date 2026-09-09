@@ -21,7 +21,7 @@ Obj.Draw = function( self )
 		render.CullMode(MATERIAL_CULLMODE_CCW)
 	end
 end
-Obj.Transmit = function( self, Ent, ply )
+Obj.Transmit = function(self, ent, ply)
 	net.WriteBool(self.VerticesUpdate)
 	if self.VerticesUpdate then
 		if (#self.vertices <= 255) then
@@ -38,7 +38,7 @@ Obj.Transmit = function( self, Ent, ply )
 			EGP:InsertQueue( Ent, ply, EGP._SetVertex, "SetVertex", self.index, self.vertices )
 		end
 	end
-	base.Transmit(self)
+	base.Transmit(self, ent, ply)
 end
 
 Obj.Receive = function( self )
@@ -53,7 +53,7 @@ Obj.Receive = function( self )
 	return tbl
 end
 Obj.DataStreamInfo = function( self )
-	return { material = self.material, r = self.r, g = self.g, b = self.b, a = self.a, filtering = self.filtering, parent = self.parent, x = self.x, y = self.y, angle = self.angle }
+	return { material = self.material, r = self.r, g = self.g, b = self.b, a = self.a, filtering = self.filtering, parent = self.parent, x = self.x, y = self.y, angle = self.angle, vertices = self.vertices }
 end
 
 function Obj:Contains(x, y)

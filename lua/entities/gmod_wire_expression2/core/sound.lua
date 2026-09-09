@@ -8,9 +8,6 @@ local wire_expression2_maxsounds = CreateConVar( "wire_expression2_maxsounds", 1
 local wire_expression2_sound_burst_max = CreateConVar( "wire_expression2_sound_burst_max", 8, {FCVAR_ARCHIVE} )
 local wire_expression2_sound_burst_rate = CreateConVar( "wire_expression2_sound_burst_rate", 0.1, {FCVAR_ARCHIVE} )
 
--- _level_max: Sets the maximum soundLevel we can set on a sound. 140 is maximum to begin with, a more non-obnoxious level is maybe around 110.
-local wire_expression2_sound_level_max = CreateConVar( "wire_expression2_sound_level_max", 110, {FCVAR_ARCHIVE} )
-
 ---------------------------------------------------------------
 -- Helper functions
 ---------------------------------------------------------------
@@ -70,9 +67,10 @@ local function soundStop(self, index, fade)
 	timer.Remove( "E2_sound_stop_" .. self.entity:EntIndex() .. "_" .. index )
 end
 
+
 local function soundCreate(self, entity, index, time, path, fade)
-	path = string.Trim(string.sub(path, 1, 260))
-	if path:match('["?]') then return end
+	path = WireLib.SoundExists(path, self.player)
+	if not path then return end
 	local data = self.data.sound_data
 	if not isAllowed( self ) then return end
 
@@ -237,9 +235,10 @@ e2function void soundDSP( string index, dsp ) = e2function void soundDSP( index,
 e2function void soundLevel( index, level )
 	local sound = getSound( self, index )
 	if not sound then return end
+
 	-- We need to set the level while the sound is stopped
 	sound:Stop()
-	sound:SetSoundLevel( math.Clamp( level, 0, wire_expression2_sound_level_max:GetInt() ) )
+	sound:SetSoundLevel(WireLib.ClampSoundLevel(level))
 	sound:Play()
 end
 e2function void soundLevel( string index, level ) = e2function void soundLevel( index, level )
@@ -291,44 +290,39 @@ e2function number soundPlaying( string index ) = e2function number soundPlaying(
 
 -- EmitSound
 
-local function EmitSound(e2, ent, snd, level, pitch, volume)
-    if not isAllowed(e2) then return end
+local function EmitSound(e2, ent, path, level, pitch, volume)
+	if not isAllowed(e2) then return end
+	if not IsValid(ent) then return e2:throw("Invalid entity!", nil) end
+	if not isOwner(e2, ent) then return e2:throw("You do not own this entity!", nil) end
 
-    if not IsValid(ent) then return e2:throw("Invalid entity!", nil) end
-    if not isOwner(e2, ent) then return e2:throw("You do not own this entity!", nil) end
+	path = WireLib.SoundExists(path)
+	if not path then return end
 
-    local maxlevel = wire_expression2_sound_level_max:GetInt()
-    if level ~= nil and level > maxlevel then
-        level = maxlevel
-    end
-
-	snd = string.sub(snd, 1, 260)
-	if snd:match('["?]') then return end
-	ent:EmitSound(snd, level, pitch, volume)
+	ent:EmitSound(path, WireLib.ClampSoundLevel(level or 75), pitch, volume)
 end
 
 __e2setcost(20)
 e2function void entity:emitSound(string soundName, number soundLevel, number pitchPercent, number volume)
-    EmitSound(self, this, soundName, soundLevel, pitchPercent, volume)
+	EmitSound(self, this, soundName, soundLevel, pitchPercent, volume)
 end
 
 e2function void entity:emitSound(string soundName, number soundLevel, number pitchPercent)
-    EmitSound(self, this, soundName, soundLevel, pitchPercent)
+	EmitSound(self, this, soundName, soundLevel, pitchPercent)
 end
 
 e2function void entity:emitSound(string soundName, number soundLevel)
-    EmitSound(self, this, soundName, soundLevel)
+	EmitSound(self, this, soundName, soundLevel)
 end
 
 e2function void entity:emitSound(string soundName)
-    EmitSound(self, this, soundName)
+	EmitSound(self, this, soundName)
 end
 
 e2function void entity:emitSoundStop(string soundName)
-    if not IsValid(this) then return self:throw("Invalid entity!", nil) end
-    if not isOwner(self, this) then return self:throw("You do not own this entity!", nil) end
+	if not IsValid(this) then return self:throw("Invalid entity!", nil) end
+	if not isOwner(self, this) then return self:throw("You do not own this entity!", nil) end
 
-    this:StopSound(soundName)
+	this:StopSound(soundName)
 end
 
 ---------------------------------------------------------------

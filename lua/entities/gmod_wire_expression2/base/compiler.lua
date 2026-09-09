@@ -9,15 +9,8 @@ local Warning, Error = E2Lib.Debug.Warning, E2Lib.Debug.Error
 local Token, TokenVariant = E2Lib.Tokenizer.Token, E2Lib.Tokenizer.Variant
 local Node, NodeVariant = E2Lib.Parser.Node, E2Lib.Parser.Variant
 local Operator = E2Lib.Operator
-
+local newE2Table = E2Lib.newE2Table
 local pairs, ipairs = pairs, ipairs
-
-local TickQuota = GetConVar("wire_expression2_quotatick"):GetInt()
-
-cvars.RemoveChangeCallback("wire_expression2_quotatick", "compiler_quota_check")
-cvars.AddChangeCallback("wire_expression2_quotatick", function(_, old, new)
-	TickQuota = tonumber(new)
-end, "compiler_quota_check")
 
 ---@class ScopeData
 ---@field dead "ret"|true?
@@ -218,6 +211,18 @@ local function handleInfixOperation(self, trace, data)
 	end
 end
 
+local function table_perf_inc(state)
+	local prf = state.prf + 1
+	if prf > e2_tickquota then
+		state:forceThrow("perf")
+	end
+	state.prf = prf
+end
+
+local function empty_array()
+	return {}
+end
+
 ---@type table<NodeVariant, fun(self: Compiler, trace: Trace, data: table, used_as_stmt: boolean): RuntimeOperator|nil, string?>
 local CompileVisitors = {
 	---@param data Node[]
@@ -252,7 +257,7 @@ local CompileVisitors = {
 		if self.scope:ResolveData("loop") or self.scope:ResolveData("switch_case") then -- Inside loop or switch case, check if continued or broken
 			return function(state) ---@param state RuntimeContext
 				state.prf = state.prf + cost
-				if state.prf > TickQuota then error("perf", 0) end
+				if state.prf > e2_tickquota then error("perf", 0) end
 
 				for i = 1, nstmts do
 					state.trace = traces[i]
@@ -263,7 +268,7 @@ local CompileVisitors = {
 		elseif self.scope:ResolveData("function") then -- If inside a function, check if returned.
 			return function(state) ---@param state RuntimeContext
 				state.prf = state.prf + cost
-				if state.prf > TickQuota then error("perf", 0) end
+				if state.prf > e2_tickquota then error("perf", 0) end
 
 				for i = 1, nstmts do
 					state.trace = traces[i]
@@ -274,7 +279,7 @@ local CompileVisitors = {
 		else -- Most optimized case, not inside a function or loop.
 			return function(state) ---@param state RuntimeContext
 				state.prf = state.prf + cost
-				if state.prf > TickQuota then error("perf", 0) end
+				if state.prf > e2_tickquota then error("perf", 0) end
 
 				for i = 1, nstmts do
 					state.trace = traces[i]
@@ -621,10 +626,13 @@ local CompileVisitors = {
 		self.scope.data.ops = self.scope.data.ops + 5
 
 		return function(state) ---@param state RuntimeContext
+			local scope, scope_id = state.Scope, state.ScopeID
 			state:PushScope()
 				local ok, err = pcall(try_block, state)
-			state:PopScope()
-			if not ok then
+			if ok then
+				state:PopScope()
+			else
+				state.Scope, state.ScopeID = scope, scope_id -- Skip back any scopes that may have been created in try_block
 				local catchable, msg = E2Lib.unpackException(err)
 				if catchable then
 					state:PushScope()
@@ -679,7 +687,7 @@ local CompileVisitors = {
 			end
 		end
 
-		if self.strict and not self.scope:IsGlobalScope() then
+		if self.strict and not (self.scope:IsGlobalScope() or (self.include and self.scope:Depth() == 1)) then
 			self:Warning("Functions should be in the top scope, nesting them does nothing", trace)
 		end
 
@@ -1255,6 +1263,8 @@ local CompileVisitors = {
 					Node.new(NodeVariant.ExprLiteral, { "n", value[3] }, trace)
 				}
 			}, trace))
+		elseif ty == "Entity" then
+			return self:CompileExpr( Node.new(NodeVariant.ExprLiteral, { "e", value }, trace) )
 		elseif ty == "table" then -- Know it's an array already from registerConstant
 			local out = {}
 			for i, val in ipairs(value) do
@@ -1281,6 +1291,8 @@ local CompileVisitors = {
 							Node.new(NodeVariant.ExprLiteral, { "n", val[3] }, trace)
 						}
 					}, trace)
+				elseif ty == "Entity" then
+					out[i] = Node.new(NodeVariant.ExprLiteral, { "e", val }, trace)
 				else
 					self:Error("Constant " .. data.value .. " has invalid data type", trace)
 				end
@@ -1295,9 +1307,7 @@ local CompileVisitors = {
 	---@param data Node[]|{ [1]: Node, [2]:Node }[]
 	[NodeVariant.ExprArray] = function (self, trace, data)
 		if #data == 0 then
-			return function()
-				return {}
-			end, "r"
+			return empty_array, "r"
 		elseif data[1][2] then -- key value array
 			---@cast data { [1]: Node, [2]: Node }[] # Key value pair arguments
 
@@ -1318,6 +1328,8 @@ local CompileVisitors = {
 				local array = {}
 
 				for key, value in pairs(numbers) do
+					table_perf_inc(state)
+
 					array[key(state)] = value(state)
 				end
 
@@ -1334,6 +1346,8 @@ local CompileVisitors = {
 			return function(state) ---@param state RuntimeContext
 				local array = {}
 				for i, val in ipairs(args) do
+					table_perf_inc(state)
+
 					array[i] = val(state)
 				end
 				return array
@@ -1343,9 +1357,7 @@ local CompileVisitors = {
 
 	[NodeVariant.ExprTable] = function (self, trace, data)
 		if #data == 0 then
-			return function()
-				return { n = {}, ntypes = {}, s = {}, stypes = {}, size = 0 }
-			end, "t"
+			return newE2Table, "t"
 		elseif data[1][2] then
 			---@cast data { [1]: Node, [2]: Node }[] # Key value pair arguments
 
@@ -1369,18 +1381,28 @@ local CompileVisitors = {
 				local s, stypes, n, ntypes = {}, {}, {}, {}
 
 				for i = 1, nstrings do
+					table_perf_inc(state)
+
 					local data = strings[i]
 					local key, value, valuetype = data[1](state), data[2], data[3]
 					s[key], stypes[key] = value(state), valuetype
 				end
 
 				for i = 1, nnumbers do
+					table_perf_inc(state)
+
 					local data = numbers[i]
 					local key, value, valuetype = data[1](state), data[2], data[3]
 					n[key], ntypes[key] = value(state), valuetype
 				end
 
-				return { s = s, stypes = stypes, n = n, ntypes = ntypes, size = size }
+				local ret = newE2Table()
+				ret.s = s
+				ret.stypes = stypes
+				ret.n = n
+				ret.ntypes = ntypes
+				ret.size = size
+				return ret
 			end, "t"
 		else
 			---@cast data Node[]
@@ -1390,11 +1412,19 @@ local CompileVisitors = {
 			end
 
 			return function(state) ---@param state RuntimeContext
-				local array = {}
+				local array, arraytypes = {}, {}
+
 				for i = 1, len do
+					table_perf_inc(state)
 					array[i] = args[i](state)
+					arraytypes[i] = argtypes[i]
 				end
-				return { n = array, ntypes = argtypes, s = {}, stypes = {}, size = len }
+
+				local ret = newE2Table()
+				ret.n = array
+				ret.ntypes = arraytypes
+				ret.size = len
+				return ret
 			end, "t"
 		end
 	end,
@@ -1439,6 +1469,8 @@ local CompileVisitors = {
 				ret,
 				function(args)
 					local s_scopes, s_scope, s_scopeid = state.Scopes, state.Scope, state.ScopeID
+
+					state.prf = state.prf + 10
 
 					local scope = { vclk = {} }
 					state.Scopes = inherited_scopes
@@ -1792,7 +1824,7 @@ local CompileVisitors = {
 				local fn = state.funcs[sig] or state.funcs[meta_sig]
 				if fn then -- first check if user defined any functions that match signature
 					local r = state.funcs_ret[sig] or state.funcs_ret[meta_sig]
-					if r ~= ret_type then
+					if r ~= ret_type and not (ret_type == nil or r == "") then
 						state:forceThrow( "Mismatching return types. Got " .. (r or "void") .. ", expected " .. (ret_type or "void"))
 					end
 
@@ -1801,7 +1833,7 @@ local CompileVisitors = {
 					fn = wire_expression2_funcs[sig] or wire_expression2_funcs[meta_sig]
 					if fn then
 						local r = fn[2]
-						if r ~= ret_type and not (ret_type == nil and r == "") then
+						if r ~= ret_type and not (ret_type == nil or r == "") then
 							state:forceThrow( "Mismatching return types. Got " .. (r or "void") .. ", expected " .. (ret_type or "void"))
 						end
 
@@ -1872,14 +1904,16 @@ local CompileVisitors = {
 				end
 			end, ret_type
 		elseif expr_ty == "f" then
-			self.scope.data.ops = self.scope.data.ops + 15 -- Since functions are 10 ops, this is pretty lenient. I will decrease this slightly when functions are made static and cheaper.
-
 			local nargs = #args
 			local sig = table.concat(arg_types)
 
 			return function(state)
 				---@type E2Lambda
 				local f = expr(state)
+
+				if f == nil then
+                    state:forceThrow("An uninitialized lambda (" .. (data[1].data.value or "unknown") .. ") was called")
+                end
 
 				if f.arg_sig ~= sig then
 					state:forceThrow("Incorrect arguments passed to lambda, expected (" .. f.arg_sig .. ") got (" .. sig .. ")")

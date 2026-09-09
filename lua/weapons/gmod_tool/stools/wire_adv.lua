@@ -213,18 +213,9 @@ if SERVER then
 			wireAdvUnwire(ply, net.ReadEntity(), net.ReadTable())
 		elseif flag == 3 then
 			wireAdvRemoveUGLinks(ply, net.ReadEntity())
-		else
-			ErrorNoHalt("Tried to call wire_adv_upload without a proper message flag")
 		end
 	end
 	net.Receive("wire_adv_upload", wireAdvReceiver)
-
-	util.AddNetworkString("wire_adv_unwire")
-	net.Receive( "wire_adv_unwire", function(ply)
-		ErrorNoHalt("wire_adv_unwire is deprecated, use wire_adv_upload with an unsigned byte 2 at the start")
-
-		wireAdvUnwire(ply, net.ReadEntity(), net.ReadTable())
-	end)
 
 	WireToolHelpers.SetupSingleplayerClickHacks(TOOL)
 elseif CLIENT then
@@ -346,8 +337,8 @@ elseif CLIENT then
 	TOOL.ShowEntity = false -- bool for showing "Create Entity" output
 
 	function TOOL:Holster()
-		if IsValid(self.CurrentEntity) then self.CurrentEntity:SetNWString("BlinkWire", "") end
-		if IsValid(self.AimingEnt) then self.AimingEnt:SetNWString("BlinkWire", "") end
+		if IsValid(self.CurrentEntity) then self.CurrentEntity.WireBlinkWire = nil end
+		if IsValid(self.AimingEnt) then self.AimingEnt.WireBlinkWire = nil end
 		self.CurrentEntity = nil
 		self.Wiring = {}
 		self.WiringRender = {}
@@ -517,7 +508,7 @@ elseif CLIENT then
 			local traceData = util.GetPlayerTrace(LocalPlayer())
 			traceData.filter = { LocalPlayer(), trace.Entity }
 			traceData.collisiongroup = LAST_SHARED_COLLISION_GROUP
-			newTrace = util.TraceLine(traceData)
+			local newTrace = util.TraceLine(traceData)
 			parent = newTrace.Entity
 			if not IsValid(parent) or parent == game.GetWorld() then
 				-- Hit the world, don't update the trace.
@@ -761,7 +752,7 @@ elseif CLIENT then
 			end
 
 			if oldport ~= self.CurrentWireIndex then
-				ent:SetNWString("BlinkWire", check[self.CurrentWireIndex][1])
+				ent.WireBlinkWire = check[self.CurrentWireIndex][1]
 				self:GetOwner():EmitSound("weapons/pistol/pistol_empty.wav")
 			end
 			return true
@@ -852,7 +843,7 @@ elseif CLIENT then
 
 			-- Clear blinking wire
 			if IsValid( self.AimingEnt ) then
-				self.AimingEnt:SetNWString("BlinkWire", "")
+				self.AimingEnt.WireBlinkWire = nil
 			end
 
 			if IsValid( ent ) then
@@ -873,7 +864,7 @@ elseif CLIENT then
 
 					-- Set blinking wire
 					if check[self.CurrentWireIndex] then
-						ent:SetNWString("BlinkWire", check[self.CurrentWireIndex][1])
+						ent.WireBlinkWire = check[self.CurrentWireIndex][1]
 					end
 				end
 			end
@@ -1054,10 +1045,10 @@ elseif CLIENT then
 		y = y + 2
 
 		local temp,_ = surface.GetTextSize( name .. ":" )
-		surface.SetTextColor( Color(255,255,255,255) )
+		surface.SetTextColor( 255, 255, 255 )
 		surface.SetTextPos( x-temp/2+w/2, y )
 		surface.DrawText( name .. ":" )
-		surface.SetDrawColor( Color(255,255,255,255) )
+		surface.SetDrawColor( 255, 255, 255 )
 		surface.DrawLine( x, y + fonth+2, x+w, y + fonth+2 )
 
 		y = y + 6
@@ -1075,11 +1066,11 @@ elseif CLIENT then
 			end
 
 			if tbl[i][4] == true then
-				surface.SetTextColor( Color(255,0,0,255) )
+				surface.SetTextColor(255, 0, 0, 255)
 			elseif self:IsBlocked( name, tbl, ent, i ) then
-				surface.SetTextColor( Color(255,255,255,32) )
+				surface.SetTextColor(255, 255, 255, 32)
 			else
-				surface.SetTextColor( Color(255,255,255,255) )
+				surface.SetTextColor(255, 255, 255)
 			end
 
 			if tbl[i][9] and tbl[i][9] > 1 then
@@ -1109,7 +1100,7 @@ elseif CLIENT then
 						local w = 0
 						local h = 0
 						for i=1,#lines do
-							lines[i] = string.Trim(lines[i])
+							lines[i] = WireLib.Trim(lines[i])
 							local ww, hh = surface.GetTextSize( lines[i] )
 							w = math.max(w,ww)
 							h = h + hh + 2
@@ -1240,7 +1231,14 @@ elseif CLIENT then
 				local mat = Material(matName)
 				local theEnt = wiring[3]
 				if not theEnt:IsValid() then
+					self:StopRenderingCurrentWire()
 					break
+				end
+				-- Prune invalid nodes
+				for j=#nodes, 1, -1 do
+					if not nodes[j][1]:IsValid() then
+						table.remove(nodes, j)
+					end
 				end
 
 				local start = theEnt:LocalToWorld(wiring[2])

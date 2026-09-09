@@ -50,9 +50,8 @@ if ENT then
 		ENT = nil
 
 		_Msg( "Calling constructors for all Expression 2 chips." )
-		wire_expression2_prepare_functiondata()
 		if not args or args[1] ~= "nosend" then
-			for _, p in ipairs( player.GetAll() ) do
+			for _, p in player.Iterator() do
 				if IsValid( p ) then wire_expression2_sendfunctions( p ) end
 			end
 		end
@@ -95,6 +94,10 @@ local function e2_include_pass2(name, luaname, contents)
 	if not preprocessedSource then return include(name) end
 
 	local func = CompileString(preprocessedSource, luaname)
+	if func == nil then
+		error("File not compiled, see previous error", 0)
+	end
+
 
 	local ok, err = pcall(func)
 	if not ok then -- an error occured while executing
@@ -111,7 +114,7 @@ local function e2_include_finalize()
 	for _, info in ipairs(included_files) do
 		local ok, message = pcall(e2_include_pass2, unpack(info))
 		if not ok then
-			WireLib.ErrorNoHalt(string.format("There was an error loading " ..
+			ErrorNoHalt(string.format("There was an error loading " ..
 			"the %s extension. Please report this to its developer.\n%s\n",
 			info[1], message))
 		end

@@ -23,8 +23,7 @@ EGP.ParentingFuncs.addUV = addUV
 local function makeArray( v, fakepos )
 	local ret = {}
 	if isstring(v.verticesindex) then
-		if not fakepos then
-			if (not v["_"..v.verticesindex]) then EGP:AddParentIndexes( v ) end
+		if not fakepos and v["_"..v.verticesindex] then
 			for k,v in ipairs( v["_"..v.verticesindex] ) do
 				ret[#ret+1] = v.x
 				ret[#ret+1] = v.y
@@ -109,7 +108,7 @@ local function GetGlobalPos(self, Ent, index)
 			if obj.parent == -1 then -- Object is parented to the cursor
 				local x, y = 0, 0
 				if CLIENT then
-					xy = EGP:EGPCursor( Ent, LocalPlayer() )
+					local xy = EGP:EGPCursor( Ent, LocalPlayer() )
 					x, y = xy[1], xy[2]
 				end
 
@@ -216,7 +215,7 @@ function EGP:SetParent( Ent, index, parentindex )
 	end
 	if (bool) then
 		if (parentindex == -1) then -- Parent to cursor?
-			if (self:EditObject( v, { parent = parentindex } )) then return true, v end
+			if (v:Set("parent", parentindex)) then return true, v end
 		else
 			if isnumber(parentindex) then
 				bool = hasObject(Ent, parentindex)
@@ -226,7 +225,7 @@ function EGP:SetParent( Ent, index, parentindex )
 			if (bool) then
 				EGP:AddParentIndexes( v )
 
-				if (SERVER) then parentindex = math.Clamp(parentindex,1,self.ConVars.MaxObjects:GetInt()) end
+				if (SERVER) then parentindex = math.Clamp(parentindex,1,EGP.ConVars.MaxObjects:GetInt()) end
 
 				-- If it's already parented to that object
 				if (v.parent and v.parent == parentindex) then return false end

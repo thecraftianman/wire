@@ -8,6 +8,8 @@ e2_softquota = nil
 e2_hardquota = nil
 e2_tickquota = nil
 e2_timequota = nil
+e2_timeaverage = nil
+e2_globalmax = nil
 
 do
 	local wire_expression2_unlimited = GetConVar("wire_expression2_unlimited")
@@ -15,6 +17,8 @@ do
 	local wire_expression2_quotahard = GetConVar("wire_expression2_quotahard")
 	local wire_expression2_quotatick = GetConVar("wire_expression2_quotatick")
 	local wire_expression2_quotatime = GetConVar("wire_expression2_quotatime")
+	local wire_expression2_quota_global = GetConVar("wire_expression2_quota_global")
+	local wire_expression2_quota_average = GetConVar("wire_expression2_quota_average")
 
 	local function updateQuotas()
 		if wire_expression2_unlimited:GetBool() then
@@ -22,18 +26,24 @@ do
 			e2_hardquota = 1000000
 			e2_tickquota = 100000
 			e2_timequota = -1
+			e2_globalmax = -1
 		else
-			e2_softquota = wire_expression2_quotasoft:GetInt()
-			e2_hardquota = wire_expression2_quotahard:GetInt()
-			e2_tickquota = wire_expression2_quotatick:GetInt()
-			e2_timequota = wire_expression2_quotatime:GetInt() * 0.001
+			e2_softquota = wire_expression2_quotasoft:GetFloat()
+			e2_hardquota = wire_expression2_quotahard:GetFloat()
+			e2_tickquota = wire_expression2_quotatick:GetFloat()
+			e2_timequota = wire_expression2_quotatime:GetFloat() * 0.001
+			e2_globalmax = wire_expression2_quota_global:GetFloat() * 0.001
 		end
+
+		e2_timeaverage = 1 / wire_expression2_quota_average:GetFloat()
 	end
 	cvars.AddChangeCallback("wire_expression2_unlimited", updateQuotas)
 	cvars.AddChangeCallback("wire_expression2_quotasoft", updateQuotas)
 	cvars.AddChangeCallback("wire_expression2_quotahard", updateQuotas)
 	cvars.AddChangeCallback("wire_expression2_quotatick", updateQuotas)
 	cvars.AddChangeCallback("wire_expression2_quotatime", updateQuotas)
+	cvars.AddChangeCallback("wire_expression2_quota_average", updateQuotas)
+	cvars.AddChangeCallback("wire_expression2_quota_global", updateQuotas)
 	updateQuotas()
 end
 
@@ -75,6 +85,12 @@ function ENT:Initialize()
 	self.error = true
 	self:UpdateOverlay(true)
 	self:SetColor(Color(255, 0, 0, self:GetColor().a))
+
+	local owner = self.player
+
+	if IsValid(owner) then
+		E2Lib.PlayerChips:add(owner, self)
+	end
 end
 
 function ENT:OnRestore()
@@ -93,7 +109,12 @@ function ENT:Destruct()
 				E2Lib.Env.Events[evt].destructor(self.context)
 			end
 
-			E2Lib.Env.Events[evt].listening[self] = nil
+			for k, ent in pairs(E2Lib.Env.Events[evt].listening) do
+				if ent == self then
+					table.remove(E2Lib.Env.Events[evt].listening, k)
+					break
+				end
+			end
 		end
 	end
 end
@@ -104,9 +125,10 @@ function ENT:UpdatePerf(selfTbl)
 	if not context then return end
 	if selfTbl.error then return end
 
-	context.prfbench = context.prfbench * 0.95 + context.prf * 0.05
+	local average_weight = 1 - e2_timeaverage
+	context.prfbench = context.prfbench * average_weight + context.prf * e2_timeaverage
 	context.prfcount = context.prfcount + context.prf - e2_softquota
-	context.timebench = context.timebench * 0.95 + context.time * 0.05 -- Average it over the last 20 ticks
+	context.timebench = context.timebench * average_weight + context.time * e2_timeaverage -- Average it over the last X ticks
 
 	if context.prfcount < 0 then context.prfcount = 0 end
 
@@ -116,9 +138,10 @@ function ENT:UpdatePerf(selfTbl)
 	context.time = 0
 end
 
-function ENT:Execute()
+function ENT:Execute(script, context)
 	local selfTbl = self:GetTable()
-	local context = selfTbl.context
+	context = context or selfTbl.context
+	script = script or selfTbl.script
 	if not context or selfTbl.error or context.resetting then return end
 
 	self:PCallHook("preexecute")
@@ -131,26 +154,25 @@ function ENT:Execute()
 
 	local bench = SysTime()
 
-	local ok, msg = pcall(selfTbl.script, context)
+	local ok, msg = pcall(script, context)
 
 	if not ok then
 		local _catchable, msg, trace = E2Lib.unpackException(msg)
 
-		if msg == "exit" then
-			self:UpdatePerf(selfTbl)
-		elseif msg == "perf" then
-			local trace = context.trace
+		if msg == "perf" then
+			trace = context.trace or trace
 			self:UpdatePerf(selfTbl)
 			self:Error("Expression 2 (" .. selfTbl.name .. "): tick quota exceeded (at line " .. trace.start_line .. ", char " .. trace.start_col .. ")", "tick quota exceeded")
-		elseif trace then
-			self:Error("Expression 2 (" .. selfTbl.name .. "): Runtime error '" .. msg .. "' at line " .. trace.start_line .. ", char " .. trace.start_col, "script error")
-		else
-			local trace = context.trace
-			self:Error("Expression 2 (" .. selfTbl.name .. "): Internal error '" .. msg .. "' at line " .. trace.start_line .. ", char " .. trace.start_col, "script error")
+		elseif msg ~= "exit" then
+			if trace then
+				self:Error("Expression 2 (" .. selfTbl.name .. "): Runtime error '" .. msg .. "' at line " .. trace.start_line .. ", char " .. trace.start_col, "script error")
+			else
+				trace = context.trace or trace
+				self:Error("Expression 2 (" .. selfTbl.name .. "): Internal error '" .. msg .. "' at line " .. trace.start_line .. ", char " .. trace.start_col, "script error")
+			end
 		end
 	end
 
-	context.time = context.time + (SysTime() - bench)
 	context.stackdepth = context.stackdepth - 1
 
 	local forceTriggerOutputs = selfTbl.first or selfTbl.duped
@@ -182,6 +204,8 @@ function ENT:Execute()
 		end
 	end
 
+	context.time = context.time + (SysTime() - bench)
+
 	if context.prfcount + context.prf - e2_softquota > e2_hardquota then
 		local trace = context.trace
 		self:Error("Expression 2 (" .. selfTbl.name .. "): tick quota exceeded (at line " .. trace.start_line .. ", char " .. trace.start_col .. ")", "hard quota exceeded")
@@ -204,6 +228,7 @@ function ENT:ExecuteEvent(evt, args)
 	local handlers = selfTbl.registered_events[evt]
 	if not handlers then return end
 
+	local bench = SysTime()
 	self:PCallHook("preexecute")
 
 	for name, handler in pairs(handlers) do
@@ -213,27 +238,25 @@ function ENT:ExecuteEvent(evt, args)
 			self:Error("Expression 2 (" .. selfTbl.name .. "): stack quota exceeded", "stack quota exceeded")
 		end
 
-		local bench = SysTime()
 		local ok, msg = pcall(handler, context, args)
 
 		if not ok then
 			local _catchable, msg, trace = E2Lib.unpackException(msg)
 
-			if msg == "exit" then
-				self:UpdatePerf(selfTbl)
-			elseif msg == "perf" then
-				local trace = context.trace
+			if msg == "perf" then
+				trace = context.trace
 				self:UpdatePerf(selfTbl)
 				self:Error("Expression 2 (" .. selfTbl.name .. "): tick quota exceeded (at line " .. trace.start_line .. ", char " .. trace.start_col .. ")", "tick quota exceeded")
-			elseif trace then
-				self:Error("Expression 2 (" .. selfTbl.name .. "): Runtime error '" .. msg .. "' at line " .. trace.start_line .. ", char " .. trace.start_col, "script error")
-			else
-				local trace = context.trace
-				self:Error("Expression 2 (" .. selfTbl.name .. "): Internal error '" .. msg .. "' at line " .. trace.start_line .. ", char " .. trace.start_col, "script error")
+			elseif msg ~= "exit" then
+				if trace then
+					self:Error("Expression 2 (" .. selfTbl.name .. "): Runtime error '" .. msg .. "' at line " .. trace.start_line .. ", char " .. trace.start_col, "script error")
+				else
+					trace = context.trace
+					self:Error("Expression 2 (" .. selfTbl.name .. "): Internal error '" .. msg .. "' at line " .. trace.start_line .. ", char " .. trace.start_col, "script error")
+				end
 			end
 		end
 
-		context.time = context.time + (SysTime() - bench)
 		context.stackdepth = context.stackdepth - 1
 	end
 
@@ -250,6 +273,8 @@ function ENT:ExecuteEvent(evt, args)
 			globalScope[k] = fixDefault(wire_expression_types2[var.type][2])
 		end
 	end
+
+	context.time = context.time + (SysTime() - bench)
 
 	if context.prfcount + context.prf - e2_softquota > e2_hardquota then
 		local trace = context.trace
@@ -279,13 +304,153 @@ function ENT:Think()
 	context.prf = 0
 	context.time = 0
 
-	if e2_timequota > 0 and context.timebench > e2_timequota then
-		self:Error("Expression 2 (" .. selfTbl.name .. "): time quota exceeded", "time quota exceeded")
-		self:PCallHook("destruct")
-	end
-
 	return true
 end
+
+local PlayerChips = {}
+PlayerChips.__index = PlayerChips
+
+function PlayerChips:new()
+	return setmetatable({}, self)
+end
+
+function PlayerChips:getTotalTime()
+	local total_time = 0
+
+	for _, chip in ipairs(self) do
+		local tab = chip:GetTable()
+		if tab.error then continue end
+
+		local context = tab.context
+		if not context then continue end
+
+		total_time = total_time + context.timebench
+	end
+
+	return total_time
+end
+
+function PlayerChips:findMaxTimeChip()
+	local max_chip, max_time = nil, 0
+
+	for _, chip in ipairs(self) do
+		local tab = chip:GetTable()
+		if tab.error then continue end
+
+		local context = tab.context
+		if not context then continue end
+
+		if context.timebench > max_time then
+			max_time = context.timebench
+			max_chip = chip
+		end
+	end
+
+	return max_chip, max_time
+end
+
+function PlayerChips:checkCpuTime()
+	local total_time = self:getTotalTime()
+
+	while total_time > e2_timequota do
+		local max_chip, max_time = self:findMaxTimeChip()
+
+		if max_chip then
+			total_time = total_time - max_time
+			max_chip:Error("Expression 2 (" .. max_chip.name .. "): Per-player time quota exceeded", "per-player time quota exceeded")
+			max_chip:Destruct()
+		else
+			-- It shouldn't happen, but if something breaks, it will prevent an infinity loop
+			break
+		end
+	end
+
+	return total_time
+end
+
+local GlobalChips = {}
+GlobalChips.__index = GlobalChips
+
+function GlobalChips:add(ply, add_chip)
+	local chips = self[ply]
+
+	if not chips then
+		chips = PlayerChips:new()
+		self[ply] = chips
+	end
+
+	table.insert(chips, add_chip)
+end
+
+function GlobalChips:remove(remove_chip)
+	-- Expensive iteration because chips may sometimes not be removed? (See #3602)
+	for ply, chips in pairs(self) do
+		for index, chip in ipairs(chips) do
+			if remove_chip == chip then
+				table.remove(chips, index)
+
+				if #chips == 0 then
+					self[ply] = nil
+				end
+
+				return
+			end
+		end
+	end
+end
+
+function GlobalChips:findMaxTimeChip(chips)
+	local max_chip, max_time = nil, 0
+
+	for _, chip in ipairs(chips) do
+		local tab = chip:GetTable()
+		if tab.error then continue end
+
+		local context = tab.context
+		if not context then continue end
+
+		if context.timebench > max_time then
+			max_time = context.timebench
+			max_chip = chip
+		end
+	end
+
+	return max_chip, max_time
+end
+
+E2Lib.PlayerChips = E2Lib.PlayerChips or setmetatable({}, GlobalChips)
+
+hook.Add("Think", "E2_Think", function()
+	local global_time = 0
+
+	if e2_timequota > 0 then
+		for ply, chips in pairs(E2Lib.PlayerChips) do
+			global_time = global_time + chips:checkCpuTime()
+		end
+	else
+		for ply, chips in pairs(E2Lib.PlayerChips) do
+			global_time = global_time + chips:getTotalTime()
+		end
+	end
+
+	if e2_globalmax > 0 and global_time > e2_globalmax then
+		-- It will be faster to just iterate over all chips from now on
+		local chips = ents.FindByClass("gmod_wire_expression2")
+
+		while global_time > e2_globalmax do
+			local max_chip, max_time = E2Lib.PlayerChips:findMaxTimeChip(chips)
+
+			if max_chip then
+				global_time = global_time - max_time
+				max_chip:Error("Expression 2 (" .. max_chip.name .. "): Global time quota exceeded", "global time quota exceeded")
+				max_chip:Destruct()
+			else
+				-- It shouldn't happen, but if something breaks, it will prevent an infinity loop
+				break
+			end
+		end
+	end
+end)
 
 local CallHook = wire_expression2_CallHook
 function ENT:CallHook(hookname, ...)
@@ -300,6 +465,7 @@ function ENT:OnRemove()
 		self:Destruct()
 	end
 
+	E2Lib.PlayerChips:remove(self)
 	BaseClass.OnRemove(self)
 end
 
@@ -328,6 +494,9 @@ function ENT:CompileCode(buffer, files, filepath)
 		self.filepath = filepath
 	end
 
+	local status, errormsg, overlaymsg = hook.Run("Expression2_CanCompile", self.player, self, buffer, filepath, files)
+	if status == false then return self:Error(errormsg or "A hook prevented this E2 from compiling", overlaymsg or "terminated") end
+
 	local status, directives, buffer = E2Lib.PreProcessor.Execute(buffer,nil,self)
 	if not status then return self:Error(directives[1].message) end
 
@@ -341,7 +510,7 @@ function ENT:CompileCode(buffer, files, filepath)
 	else
 		self.WireDebugName = "E2 - " .. self.name
 	end
-	self:SetNWString("name", self.name)
+	self:SetInstanceName(self.name)
 
 	self.directives = directives
 	self.inports = directives.inputs
@@ -356,6 +525,7 @@ function ENT:CompileCode(buffer, files, filepath)
 	if not status then self:Error(tree.message) return end
 
 	if not self:PrepareIncludes(files) then return end
+	hook.Run("Expression2_PostCompile", self.player, self, buffer, directives)
 
 	local status, script, inst = E2Lib.Compiler.Execute(tree, directives, dvars, self.includes)
 	if not status then self:Error(script.message) return end
@@ -566,7 +736,8 @@ function ENT:Setup(buffer, includes, restore, forcecompile, filepath)
 				-- If the event has a constructor to run when the E2 is made and listening to the event.
 				E2Lib.Env.Events[evt].constructor(self.context)
 			end
-			E2Lib.Env.Events[evt].listening[self] = true
+
+			table.insert(E2Lib.Env.Events[evt].listening, self)
 		end
 	end
 
@@ -583,6 +754,27 @@ function ENT:Reset()
 			self:Setup(self.original, self.inc_files)
 		end
 	end)
+end
+
+function ENT:ReadCell(Address)
+	local selfTbl = self:GetTable()
+	if selfTbl.error or not selfTbl.registered_events["readCell"] then return nil end
+	local ctx = selfTbl.context
+	ctx.data.hispeedIOError = false
+	ctx.data.readCellValue = 0
+	self:ExecuteEvent("readCell",{Address})
+	if ctx.data.hispeedIOError or self.error then return nil end
+	return ctx.data.readCellValue
+end
+
+function ENT:WriteCell(addr,value)
+	local selfTbl = self:GetTable()
+	if selfTbl.error or not selfTbl.registered_events["writeCell"] then return nil end
+	local ctx = selfTbl.context
+	ctx.data.hispeedIOError = false
+	self:ExecuteEvent("writeCell",{addr,value})
+	if ctx.data.hispeedIOError or self.error then return nil end
+	return true
 end
 
 function ENT:TriggerInput(key, value)
@@ -636,6 +828,11 @@ function ENT:ApplyDupeInfo(ply, ent, info, GetEntByID, GetConstByID)
 				self.GlobalScope[k] = istable(v) and Angle(v[1], v[2], v[3]) or v
 			elseif vartype == "v" then
 				self.GlobalScope[k] = istable(v) and Vector(v[1], v[2], v[3]) or v
+			elseif vartype == "t" then
+				if istable(v) and getmetatable(v) == nil then
+					setmetatable(v, WireLib.E2Table)
+				end
+				self.GlobalScope[k] = v
 			else
 				self.GlobalScope[k] = v
 			end
@@ -651,57 +848,61 @@ function ENT:ApplyDupeInfo(ply, ent, info, GetEntByID, GetConstByID)
 	BaseClass.ApplyDupeInfo(self, ply, ent, info, GetEntByID, GetConstByID)
 end
 
--- -------------------------------- Transfer ----------------------------------
-
---[[
-	Player Disconnection Magic
---]]
-local cvar = CreateConVar("wire_expression2_pause_on_disconnect", 0, 0, "Decides if chips should pause execution on their owner's disconnect.\n0 = no, 1 = yes, 2 = non-admins only.")
--- This is a global function so it can be overwritten for greater control over whose chips are frozenated
-function wire_expression2_ShouldFreezeChip(ply)
-	return not ply:IsAdmin()
+-- Clean up some extra data that bloats the E2
+function ENT:OnEntityCopyTableFinish(t)
+	t.Author = nil
+	t.Inputs = nil
+	t.Outputs = nil
+	t.OverlayData = nil
+	t.PrintName = nil
+	t.WireDebugName = nil
+	t.buffer = nil
+	t.context = nil
+	t.directives = nil
+	t.duped = nil
+	t.error = nil
+	t.first = nil
+	t.funcs = nil
+	t.globalvars = nil
+	t.globalvars_mut = nil
+	t.includes = nil
+	t.inports = nil
+	t.lastResetOrError = nil
+	t.name = nil
+	t.original = nil
+	t.outports = nil
+	t.persists = nil
+	t.player = nil
+	t.trigger = nil
+	t.uid = nil
 end
 
--- It uses EntityRemoved because PlayerDisconnected doesn't catch all disconnects.
-hook.Add("EntityRemoved", "Wire_Expression2_Player_Disconnected", function(ent)
-	if (not (ent and ent:IsPlayer())) then
-		return
-	end
-	local ret = cvar:GetInt()
-	if (ret == 0 or (ret == 2 and not wire_expression2_ShouldFreezeChip(ent))) then
-		return
-	end
-	for _, v in ipairs(ents.FindByClass("gmod_wire_expression2")) do
-		if (v.player == ent) then
-			v:SetOverlayText(v.name .. "\n(Owner disconnected.)")
-			local oldColor = v:GetColor()
-			v:SetColor(Color(255, 0, 0, v:GetColor().a))
-			v.disconnectPaused = oldColor
-			v.error = true
+-- -------------------------------- Transfer ----------------------------------
+
+-- EntityRemoved instead PlayerDisconnected because is not called for the listen-host (for example during retry)
+hook.Add("EntityRemoved", "Wire_Expression2_Player_Disconnected", function(ply)
+	if ply:IsPlayer() then
+		E2Lib.PlayerChips[ply] = nil
+
+		for _, v in ipairs(ents.FindByClass("gmod_wire_expression2")) do
+			if v.player == ply and not v.error then
+				v:Error("Owner disconnected")
+				v:Destruct()
+			end
 		end
 	end
 end)
 
 hook.Add("PlayerAuthed", "Wire_Expression2_Player_Authed", function(ply, sid, uid)
 	for _, ent in ipairs(ents.FindByClass("gmod_wire_expression2")) do
-		if (ent.uid == uid) then
-			ent.context.player = ply
-			ent.player = ply
-			ent:SetNWEntity("player", ply)
-			ent:SetPlayer(ply)
-
-			if ent.disconnectPaused then
-				ent:SetColor(ent.disconnectPaused)
-				ent:SetRenderMode(ent:GetColor().a == 255 and RENDERMODE_NORMAL or RENDERMODE_TRANSALPHA)
-				ent.error = false
-				ent.disconnectPaused = nil
-				ent:SetOverlayText(ent.name)
-			end
+		-- Add to the account only for the real owner
+		if ent:GetPlayer() == ply then
+			E2Lib.PlayerChips:add(ply, ent)
 		end
-	end
-	for _, ent in ipairs(ents.FindByClass("gmod_wire_hologram")) do
-		if ent.steamid == sid then
-			ent:SetPlayer(ply)
+
+		if ent.uid == uid then
+			ent:SetInstancePlayer(ply)
+			ent.player = ply
 		end
 	end
 end)
@@ -719,10 +920,12 @@ function MakeWireExpression2(player, Pos, Ang, model, buffer, name, inputs, outp
 	self:SetModel(model)
 	self:SetAngles(Ang)
 	self:SetPos(Pos)
-	self:Spawn()
 	self:SetPlayer(player)
 	self.player = player
-	self:SetNWEntity("player", player)
+	self:Spawn()
+
+	-- Wait for ENT:SetupDataTables
+	self:SetInstancePlayer(self.player)
 
 	if isstring( buffer ) then -- if someone dupes an E2 with compile errors, then all these values will be invalid
 		buffer = string.Replace(string.Replace(buffer, string.char(163), "\""), string.char(128), "\n")

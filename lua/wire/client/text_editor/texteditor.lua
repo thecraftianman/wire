@@ -16,7 +16,6 @@ local string_gsub = string.gsub
 local string_rep = string.rep
 local string_byte = string.byte
 local string_format = string.format
-local string_Trim = string.Trim
 local string_reverse = string.reverse
 local math_min = math.min
 local table_insert = table.insert
@@ -237,7 +236,7 @@ function EDITOR:OpenContextMenu()
 			for _, v in pairs( colors ) do
 				local color = v[2][1]
 
-				if (prev_colors and prev_colors == color) or string_Trim(v[1]) == "" then
+				if (prev_colors and prev_colors == color) or WireLib.Trim(v[1]) == "" then
 					str = str .. v[1]
 				else
 					prev_colors = color
@@ -2941,8 +2940,7 @@ function EDITOR:AC_FillList()
 			end
 
 			surface_DrawRect(0, 0, w, h)
-
-			surface_SetDrawColor(backgroundColor)
+			surface_SetDrawColor(backgroundColor.r, backgroundColor.g, backgroundColor.b, backgroundColor.a)
 			surface_DrawRect(0, 0, 4, h)
 
 			surface.SetFont(self.CurrentFont)

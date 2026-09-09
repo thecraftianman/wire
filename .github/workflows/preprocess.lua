@@ -14,6 +14,7 @@ end
 -- Polyfills
 AddCSLuaFile = function() end
 _G.E2Lib = {}
+_G.WireLib = {}
 _G.wire_expression_types = {
 	VECTOR = {"v"}, VECTOR2 = {"xv2"},
 	VECTOR4 = {"xv4"}, STRING = {"s"},
@@ -24,13 +25,16 @@ _G.wire_expression_types = {
 	COMPLEX = {"c"}, GTABLE = {"xgt"},
 	MATRIX = {"m"}, MATRIX2 = {"xm2"},
 	MATRIX4 = {"xm4"}, RANGER = {"xrd"},
-	EFFECT = {"xef"}
+	EFFECT = {"xef"}, FUNCTION = {"f"},
+	DAMAGE = {"xdm"}, EGPOBJECT = {"xeo"},
+	USERCMD = {"xuc"}, MOVEDATA = {"xmv"},
+	COLLISION = {"xcd"}
 }
 
 if not unpack then unpack = table.unpack end
 function istable(t) return type(t) == "table" end
 
-function string.Trim(s)
+function WireLib.Trim(s)
 	return string.match( s, "^%s*(.-)%s*$" ) or s
 end
 

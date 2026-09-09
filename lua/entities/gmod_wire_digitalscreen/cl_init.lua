@@ -1,8 +1,45 @@
-include('shared.lua')
+include("shared.lua")
+
+
+
+function ENT:SendData()
+	net.Start("wire_interactiveprop_action")
+
+	local data	= WireLib.GetInteractiveModel(self:GetModel()).widgets
+	net.WriteEntity(self)
+	for i=1, #data do
+		net.WriteFloat(self.InteractiveData[i])
+	end
+	net.SendToServer()
+end
+
+function ENT:GetPanel()
+	if not self.IsInteractive then return end
+	local data	= WireLib.GetInteractiveModel(self:GetModel())
+	return WireLib.GetInteractiveWidgetBody(self, data)
+end
+
+
+function ENT:AddButton(id,button)
+	if not self.IsInteractive then return end
+	self.Buttons[id] = button
+end
 
 function ENT:Initialize()
 	self.Memory1 = {}
 	self.Memory2 = {}
+
+	self.InteractiveData = {}
+	self.LastButtons = {}
+	self.Buttons = {}
+	local interactive_model = WireLib.GetInteractiveModel(self:GetModel())
+	self.IsInteractive = false
+	if interactive_model then
+		self.IsInteractive = true
+		for i=1, #WireLib.GetInteractiveModel(self:GetModel()).widgets do
+			self.InteractiveData[i] = 0
+		end
+	end
 
 	self.LastClk = true
 	self.NewClk = true
@@ -21,15 +58,15 @@ function ENT:Initialize()
 		self.RefreshRows[i] = i-1
 	end
 
-	//0..786431 - RGB data
+	--0..786431 - RGB data
 
-	//1048569 - Color mode (0: RGBXXX; 1: R G B)
-	//1048570 - Clear row
-	//1048571 - Clear column
-	//1048572 - Screen Height
-	//1048573 - Screen Width
-	//1048574 - Hardware Clear Screen
-	//1048575 - CLK
+	--1048569 - Color mode (0: RGBXXX; 1: R G B)
+	--1048570 - Clear row
+	--1048571 - Clear column
+	--1048572 - Screen Height
+	--1048573 - Screen Width
+	--1048574 - Hardware Clear Screen
+	--1048575 - CLK
 
 	self.GPU = WireGPU(self)
 
@@ -203,31 +240,17 @@ transformcolor[0] = function(c) -- RGBXXX
 	local crgb = math.floor(c / 1000)
 	local cgray = c - math.floor(c / 1000)*1000
 
-	cb = cgray+28*math.fmod(crgb, 10)
-	cg = cgray+28*math.fmod(math.floor(crgb / 10), 10)
-	cr = cgray+28*math.fmod(math.floor(crgb / 100), 10)
-
-	return cr, cg, cb
+	return cgray+28*math.fmod(math.floor(crgb / 100), 10), cgray+28*math.fmod(math.floor(crgb / 10), 10), cgray+28*math.fmod(crgb, 10)
 end
 transformcolor[2] = function(c) -- 24 bit mode
-	cb = math.fmod(c, 256)
-	cg = math.fmod(math.floor(c / 256), 256)
-	cr = math.fmod(math.floor(c / 65536), 256)
-
-	return cr, cg, cb
+	return math.fmod(math.floor(c / 65536), 256), math.fmod(math.floor(c / 256), 256), math.fmod(c, 256)
 end
 transformcolor[3] = function(c) -- RRRGGGBBB
-	cb = math.fmod(c, 1000)
-	cg = math.fmod(math.floor(c / 1e3), 1000)
-	cr = math.fmod(math.floor(c / 1e6), 1000)
-
-	return cr, cg, cb
+	return math.fmod(math.floor(c / 1e6), 1000), math.fmod(math.floor(c / 1e3), 1000), math.fmod(c, 1000)
 end
 transformcolor[4] = function(c) -- XXX
 	return c, c, c
 end
-
-local floor = math.floor
 
 function ENT:RedrawPixel(a)
 	if a >= self.ScreenWidth*self.ScreenHeight then return end
@@ -277,8 +300,8 @@ function ENT:RedrawRow(y)
 end
 
 local VECTOR_1_1_1 = Vector(1, 1, 1)
-function ENT:Draw()
-	self:DrawModel()
+function ENT:Draw(flags)
+	self:DrawModel(flags)
 
 	local tone = render.GetToneMappingScaleLinear()
 	render.SetToneMappingScaleLinear(VECTOR_1_1_1)

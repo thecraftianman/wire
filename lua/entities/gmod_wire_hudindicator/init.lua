@@ -263,7 +263,7 @@ function ENT:SendHUDInfo(hidehud)
 	local pl = self:GetPlayer()
 
 	for index,rplayer in pairs(self.RegisteredPlayers) do
-		if (rplayer.ply) then
+		if (IsValid(rplayer.ply)) then
 			if rplayer.ply ~= pl or (self.ShowInHUD or self.PodPly == pl) then
 				umsg.Start("HUDIndicatorHideHUD", rplayer.ply)
 					umsg.Short(self:EntIndex())
@@ -288,7 +288,7 @@ function ENT:LinkEnt(pod)
 
 	local ply = nil
 	-- Check if a player is in pod first
-	for _, v in pairs(player.GetAll()) do
+	for _, v in player.Iterator() do
 		if (v:GetVehicle() == pod) then
 			ply = v
 			break
@@ -331,7 +331,7 @@ function ENT:Think()
 		local ply = nil
 
 		if not IsValid(self.PodPly) or self.PodPly:GetVehicle() ~= self.Pod then
-			for _, v in pairs(player.GetAll()) do
+			for _, v in player.Iterator() do
 				if (v:GetVehicle() == self.Pod) then
 					ply = v
 					break
